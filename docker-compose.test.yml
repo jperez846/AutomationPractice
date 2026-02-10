@@ -1,0 +1,33 @@
+version: '3.8'
+
+services:
+  backend:
+    environment:
+      # Use test profile for E2E tests
+      SPRING_PROFILES_ACTIVE: test
+
+  e2e-tests:
+    build:
+      context: .
+      dockerfile: Dockerfile.e2e
+    container_name: e2e-tests
+    depends_on:
+      selenium-hub:
+        condition: service_healthy
+      chrome:
+        condition: service_started
+      frontend:
+        condition: service_healthy
+      backend:
+        condition: service_healthy
+    environment:
+      SELENIUM_HUB_URL: http://selenium-hub:4444
+      FRONTEND_URL: http://frontend:80
+      BACKEND_URL: http://backend:8080
+      BROWSER: chrome
+    volumes:
+      - ./test-results:/app/test-results
+      - ./target/screenshots:/app/target/screenshots
+      - ./allure-results:/app/allure-results
+    networks:
+      - app-network

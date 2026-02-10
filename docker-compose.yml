@@ -1,0 +1,368 @@
+version: '3.8'
+
+services:
+  backend:
+    build:
+      context: .
+      dockerfile: Dockerfile.backend
+    image: product-app-backend:latest
+    container_name: backend
+    ports:
+      - "8080:8080"
+      - "9092:9092" #You must open the H2 TCP port (9092) so your Mac can "see" the database inside the container.
+    environment:
+      # Use default profile (in-memory H2)
+      # This uses application.properties (no profile suffix)
+      SPRING_PROFILES_ACTIVE: ${SPRING_PROFILE:-default}
+      JAVA_OPTS: '-Xmx512m -Xms256m'
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://localhost:8080/actuator/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 40s
+    restart: unless-stopped
+    networks:
+      - app-network
+
+  frontend:
+    build:
+      context: .
+      dockerfile: Dockerfile.frontend
+    image: product-app-frontend:latest
+    container_name: frontend
+    ports:
+      - "80:80"
+    depends_on:
+      backend:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+    restart: unless-stopped
+    networks:
+      - app-network
+
+  # ==========================================================================
+  # SELENIUM HUB (Coordinator for browser nodes)
+  # ==========================================================================
+  #
+  # What is Selenium Hub?
+  # - Central point that manages browser nodes (Chrome, Firefox, etc.)
+  # - Receives test requests and routes them to available browsers
+  # - Monitors browser health and availability
+  #
+  # Think of it as: Traffic controller for test execution
+  # ==========================================================================
+  selenium-hub:
+    # Use official Selenium Hub image
+    # Version 4.x has better features and performance
+    image: selenium/hub:4.16.1
+    platform: linux/amd64
+
+    # Container name for easy reference
+    container_name: selenium-hub
+
+    # Port mappings:
+    # 4444: Main Selenium Grid API port
+    #       - Tests connect here to request browsers
+    #       - Grid UI available at http://localhost:4444
+    # 4442: Event bus publish port (internal communication)
+    # 4443: Event bus subscribe port (internal communication)
+    ports:
+      - "4444:4444"    # Main Grid port - YOU USE THIS
+      - "4442:4442"    # Internal - nodes publish events here
+      - "4443:4443"    # Internal - nodes subscribe to events here
+
+    # Environment variables for Selenium Hub
+    environment:
+      # ======================================================================
+      # GRID CONFIGURATION
+      # ======================================================================
+
+      # Maximum number of concurrent browser sessions
+      # Limits how many tests can run at the same time
+      # Example: SE_SESSION_REQUEST_TIMEOUT=300
+      #   If all browsers are busy, new requests wait up to 300 seconds
+      GRID_MAX_SESSION: 5
+
+      # Timeout for session requests (seconds)
+      # How long to wait for an available browser before giving up
+      SE_SESSION_REQUEST_TIMEOUT: 300
+
+      # Timeout for individual sessions (seconds)
+      # Auto-kill sessions that run longer than this
+      # Prevents hung tests from blocking resources
+      SE_SESSION_TIMEOUT: 300
+
+      # Node polling interval (milliseconds)
+      # How often Hub checks if nodes are alive
+      SE_NODE_HEARTBEAT_PERIOD: 30000
+
+      # ======================================================================
+      # LOGGING
+      # ======================================================================
+
+      # Log level: SEVERE, WARNING, INFO, CONFIG, FINE, FINER, FINEST
+      # INFO: Normal operation logs
+      # FINE: Detailed debugging logs
+      SE_LOG_LEVEL: INFO
+
+      # Enable structured logging (JSON format)
+      # Useful for log aggregation tools (ELK, Splunk, etc.)
+      SE_STRUCTURED_LOGS: 'false'
+
+    # Health check for Selenium Hub
+    # Ensures Hub is ready before starting browser nodes
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:4444/wd/hub/status"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+
+    restart: unless-stopped
+    networks:
+      - app-network
+
+  # ==========================================================================
+  # SELENIUM CHROME NODE (Browser container)
+  # ==========================================================================
+  #
+  # What is a Chrome Node?
+  # - Container running Chrome browser
+  # - Registers with Selenium Hub
+  # - Executes test commands received from Hub
+  # - Can run tests in headless mode (no GUI) or headed mode (with GUI)
+  #
+  # Why separate node from hub?
+  # - Can scale: Run multiple Chrome nodes for parallel testing
+  # - Can add Firefox, Edge nodes alongside Chrome
+  # - Isolates browser crashes from Hub
+  # ==========================================================================
+  chrome:
+    # Use official Selenium Chrome image
+    # This image includes:
+    # - Chrome browser (stable version)
+    # - ChromeDriver (WebDriver for Chrome)
+    # - Selenium node software
+    image: selenium/node-chrome:4.16.1
+    platform: linux/amd64
+
+    container_name: selenium-chrome
+
+    # Shared memory size
+    # Why needed? Chrome uses shared memory for performance
+    # Default (64MB) is too small, causes Chrome crashes
+    # 2GB is recommended for stable operation
+    shm_size: 2gb
+
+    # Port mapping (optional, for debugging)
+    # 5900: VNC port - watch tests run in real-time
+    # 7900: noVNC web interface - watch tests in browser
+    ports:
+      - "5900:5900"    # VNC port (use VNC viewer)
+      - "7900:7900"    # noVNC port (use web browser)
+
+    # Wait for Hub to be healthy before starting
+    depends_on:
+      selenium-hub:
+        condition: service_healthy
+      frontend:
+        condition: service_healthy
+      backend:
+        condition: service_healthy
+
+    environment:
+      # ======================================================================
+      # NODE REGISTRATION
+      # ======================================================================
+
+      # URL of Selenium Hub
+      # Node connects to this URL to register itself
+      # Format: http://<hub-hostname>:4444
+      SE_EVENT_BUS_HOST: selenium-hub
+      SE_EVENT_BUS_PUBLISH_PORT: 4442
+      SE_EVENT_BUS_SUBSCRIBE_PORT: 4443
+
+      # ======================================================================
+      # BROWSER CAPABILITIES
+      # ======================================================================
+
+      # How many Chrome sessions this node can handle simultaneously
+      # Each session = one test using one Chrome instance
+      # Higher = more parallel tests, but needs more RAM
+      SE_NODE_MAX_SESSIONS: 3
+
+      # Override max instances (optional)
+      # Limits specific browser instances
+      # SE_NODE_MAX_INSTANCES: 3
+
+      # ======================================================================
+      # VNC CONFIGURATION (for watching tests)
+      # ======================================================================
+
+      # Enable VNC server
+      # Allows you to watch tests running visually
+      SE_VNC_NO_PASSWORD: 1
+
+      # VNC password (if SE_VNC_NO_PASSWORD is not set)
+      # SE_VNC_PASSWORD: secret
+
+      # Enable video recording of test sessions
+      # Saves videos to /videos directory in container
+      # MUST mount volume to access videos
+      SE_VIDEO_RECORD: 'false'
+
+      # ======================================================================
+      # CHROME OPTIONS
+      # ======================================================================
+
+      # Start Chrome in maximized window
+      SE_START_XVFB: 'true'
+
+      # Screen resolution (for screenshots/videos)
+      SE_SCREEN_WIDTH: 1920
+      SE_SCREEN_HEIGHT: 1080
+
+      # ======================================================================
+      # PERFORMANCE & RESOURCES
+      # ======================================================================
+
+      # Java heap size for Selenium node
+      JAVA_OPTS: '-Xmx512m'
+
+      # Node polling timeout
+      SE_NODE_SESSION_TIMEOUT: 300
+
+      # ======================================================================
+      # LOGGING
+      # ======================================================================
+
+      SE_LOG_LEVEL: INFO
+
+    # Volumes (optional)
+    # Mount for video recordings or downloaded files
+    volumes:
+      # Save test recordings to host machine
+      - ./selenium-videos:/videos
+
+      # Save downloaded files
+      - ./selenium-downloads:/home/seluser/Downloads
+
+    # Health check for Chrome node
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:5555/status"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+
+    restart: unless-stopped
+    networks:
+      - app-network
+
+  # ==========================================================================
+  # FIREFOX NODE (Optional - for cross-browser testing)
+  # ==========================================================================
+  #
+  # Uncomment to add Firefox for cross-browser testing
+  # ==========================================================================
+  # firefox:
+  #   image: selenium/node-firefox:4.16.1
+  #   container_name: selenium-firefox
+  #   shm_size: 2gb
+  #   ports:
+  #     - "5901:5900"    # Different VNC port to avoid conflict
+  #     - "7901:7900"    # Different noVNC port
+  #   depends_on:
+  #     selenium-hub:
+  #       condition: service_healthy
+  #   environment:
+  #     SE_EVENT_BUS_HOST: selenium-hub
+  #     SE_EVENT_BUS_PUBLISH_PORT: 4442
+  #     SE_EVENT_BUS_SUBSCRIBE_PORT: 4443
+  #     SE_NODE_MAX_SESSIONS: 3
+  #     SE_VNC_NO_PASSWORD: 1
+  #     SE_SCREEN_WIDTH: 1920
+  #     SE_SCREEN_HEIGHT: 1080
+  #   networks:
+  #     - app-network
+
+  # ==========================================================================
+  # E2E TEST RUNNER (Optional - run tests in container)
+  # ==========================================================================
+  #
+  # This service runs your E2E tests automatically
+  # Useful for CI/CD pipelines
+  # ==========================================================================
+  e2e-tests:
+    # Build from Dockerfile that includes Maven and tests
+    build:
+      context: .
+      dockerfile: Dockerfile.e2e
+
+    container_name: e2e-tests
+
+    # Don't start automatically (use: docker-compose run e2e-tests)
+    # Or set to 'unless-stopped' to run on every startup
+    profiles:
+      - testing
+
+    # Wait for all services to be ready
+    depends_on:
+      selenium-hub:
+        condition: service_healthy
+      chrome:
+        condition: service_healthy
+      frontend:
+        condition: service_healthy
+      backend:
+        condition: service_healthy
+
+    environment:
+      # URL to Selenium Hub
+      SELENIUM_HUB_URL: http://selenium-hub:4444
+
+      # Frontend URL (from test perspective)
+      FRONTEND_URL: http://frontend:80
+
+      # Backend URL (if tests need direct API access)
+      BACKEND_URL: http://backend:8080
+
+      # Browser to use
+      BROWSER: chrome
+
+      # Test timeout
+      TEST_TIMEOUT: 300
+
+    # Mount test results
+    volumes:
+      - ./test-results:/app/test-results
+      - ./target/screenshots:/app/target/screenshots
+
+    networks:
+      - app-network
+
+# ============================================================================
+# NETWORKS
+# ============================================================================
+networks:
+  app-network:
+    driver: bridge
+    name: app-network
+
+# ============================================================================
+# VOLUMES (for persisting data)
+# ============================================================================
+volumes:
+  # Selenium video recordings
+  selenium-videos:
+    driver: local
+
+  # Selenium downloads
+  selenium-downloads:
+    driver: local

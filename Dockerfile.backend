@@ -1,0 +1,136 @@
+# ============================================================================
+# Multi-Stage Dockerfile for Spring Boot Backend
+# ============================================================================
+# 
+# Multi-stage builds:
+# - Stage 1 (builder): Compiles Java code and creates JAR file
+# - Stage 2 (runtime): Runs the application with minimal dependencies
+# 
+# Benefits:
+# - Smaller final image (no build tools in production image)
+# - Faster builds (Maven dependencies are cached)
+# - More secure (fewer attack surfaces)
+# ============================================================================
+
+# ============================================================================
+# STAGE 1: BUILD
+# ============================================================================
+# 
+# Use Maven image with JDK to compile the application
+# "AS builder" names this stage so we can reference it later
+FROM maven:3.9.6-eclipse-temurin-21 AS builder
+
+# Set working directory inside the container
+# All subsequent commands run from this directory
+WORKDIR /app
+
+# ============================================================================
+# OPTIMIZE DOCKER LAYER CACHING
+# ============================================================================
+# 
+# Docker builds images in layers. Each instruction creates a new layer.
+# Layers are cached and reused if nothing changes.
+# 
+# Strategy: Copy dependency files first, then source code
+# Why? Dependencies change less frequently than source code
+# Result: Faster rebuilds when only code changes
+# ============================================================================
+
+# Copy Maven configuration files
+# These rarely change, so this layer will be cached
+COPY pom.xml .
+COPY .mvn/ .mvn/
+COPY mvnw .
+
+# Download dependencies
+# This creates a separate layer with all dependencies
+# If pom.xml doesn't change, this layer is reused (FAST!)
+RUN mvn dependency:go-offline -B
+
+# Now copy the source code
+# This layer only rebuilds when code changes
+COPY src/ ./src/
+
+# Build the application
+# -DskipTests: Skip running tests in Docker build (run them in CI/CD instead)
+# clean: Remove old build artifacts
+# package: Compile code and create JAR file
+# 
+# Output: JAR file in /app/target/*.jar
+RUN mvn clean package -DskipTests
+
+# ============================================================================
+# Debugging: Verify JAR was created
+# ============================================================================
+RUN echo "=== Build Complete ===" && \
+    ls -lh /app/target/*.jar
+
+# ============================================================================
+# STAGE 2: RUNTIME
+# ============================================================================
+# 
+# Use smaller JRE image (no compiler, no Maven - just runtime)
+# eclipse-temurin is a high-quality OpenJDK distribution
+# "jre" variant has only JRE, not full JDK (smaller size)
+FROM eclipse-temurin:21-jre-alpine
+
+# Set working directory for runtime
+WORKDIR /app
+
+# ============================================================================
+# COPY JAR FROM BUILD STAGE
+# ============================================================================
+# 
+# --from=builder: Copy from the "builder" stage (Stage 1)
+# /app/target/*.jar: Source path in builder stage
+# app.jar: Destination in this stage (renamed for simplicity)
+COPY --from=builder /app/target/*.jar app.jar
+
+# ============================================================================
+# CONFIGURE APPLICATION
+# ============================================================================
+
+# Expose port 8080
+# This is DOCUMENTATION only - doesn't actually publish the port
+# Actual port mapping happens with "docker run -p" or docker-compose
+EXPOSE 8080
+
+# Set environment variables
+# These can be overridden when running the container
+ENV SPRING_PROFILES_ACTIVE=prod
+ENV JAVA_OPTS="-Xmx512m -Xms256m"
+
+# ============================================================================
+# HEALTHCHECK
+# ============================================================================
+# 
+# Docker will periodically check if container is healthy
+# Useful for orchestration tools (Docker Compose, Kubernetes)
+# 
+# --interval=30s: Check every 30 seconds
+# --timeout=3s: Fail if check takes longer than 3 seconds
+# --start-period=40s: Wait 40s before first check (app startup time)
+# --retries=3: Mark unhealthy after 3 failed checks
+HEALTHCHECK --interval=30s --timeout=3s --start-period=40s --retries=3 \
+    CMD wget --no-verbose --tries=1 --spider http://localhost:8080/actuator/health || exit 1
+
+# ============================================================================
+# RUN APPLICATION
+# ============================================================================
+# 
+# ENTRYPOINT: Command that always runs (not overridable)
+# CMD: Default arguments (can be overridden)
+# 
+# Combined: java $JAVA_OPTS -jar app.jar
+# 
+# $JAVA_OPTS: Memory settings from environment variable
+# -jar app.jar: Run the Spring Boot JAR file
+ENTRYPOINT ["sh", "-c", "java $JAVA_OPTS -jar app.jar"]
+
+# ============================================================================
+# BUILD THIS IMAGE:
+# docker build -f Dockerfile.backend -t your-app-backend:latest .
+# 
+# RUN THIS IMAGE:
+# docker run -p 8080:8080 your-app-backend:latest
+# ============================================================================

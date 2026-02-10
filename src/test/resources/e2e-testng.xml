@@ -1,0 +1,29 @@
+<!DOCTYPE suite SYSTEM "https://testng.org/testng-1.0.dtd" >
+
+<!--
+  TestNG Suite for E2E Tests
+
+  Configuration:
+  - verbose: 1 = minimal output, 10 = maximum detail
+  - parallel: none = run tests sequentially (recommended for E2E)
+  - thread-count: how many tests run simultaneously
+-->
+<suite name="E2E Test Suite" verbose="1" parallel="none">
+
+    <!--
+      Test group for E2E tests
+    -->
+    <test name="Product Search E2E Tests">
+        <!--
+          Set timeout for entire test (in milliseconds)
+          30 minutes = 1800000 ms
+        -->
+        <parameter name="timeout" value="1800000"/>
+
+        <classes>
+            <!-- Add your E2E test classes here -->
+            <class name="e2e.tests.ProductSearchE2ETest"/>
+        </classes>
+    </test>
+
+</suite>

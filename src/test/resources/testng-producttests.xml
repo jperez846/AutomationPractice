@@ -1,0 +1,8 @@
+<!DOCTYPE suite SYSTEM "https://testng.org/testng-1.0.dtd">
+<suite name="MyProductTestSuite" parallel="methods" thread-count="2">
+<test name="ProductSmokeTests">
+    <classes>
+        <class name="tests.ProductServiceTests"/>
+    </classes>
+</test>
+</suite>
