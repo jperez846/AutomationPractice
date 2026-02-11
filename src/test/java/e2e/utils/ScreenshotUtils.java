@@ -18,7 +18,7 @@ import java.util.Date;
 public class ScreenshotUtils {
 
     // Directory to save screenshots
-    private static final String SCREENSHOT_DIR = "screenshots/";
+    private static final String SCREENSHOT_DIR = "target/screenshots/";
 
     /**
      * Take screenshot and save to file
