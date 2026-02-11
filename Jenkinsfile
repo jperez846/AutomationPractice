@@ -46,7 +46,8 @@ pipeline {
                     echo "🔨 Building Spring Boot backend..."
                     sh '''
                         # Build Maven project
-                        mvn clean package -DskipTests
+                       # mvn clean package -DskipTests
+                       # No need to run mvn clean docker compose handles this
 
                         # Build Docker image
                         docker build -f Dockerfile.backend -t ${BACKEND_IMAGE}:${BUILD_TAG} .
