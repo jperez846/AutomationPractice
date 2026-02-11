@@ -167,7 +167,7 @@ echo ""
 # -Dbrowser=$BROWSER: Pass browser choice to tests
 # ============================================================================
 
-mvn clean test \
+mvn clean integration-test \
     -Dtest=ProductSearchE2ETest \
     -DseleniumHubUrl="$SELENIUM_HUB_URL" \
     -DfrontendUrl="$FRONTEND_URL" \
