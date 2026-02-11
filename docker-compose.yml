@@ -340,9 +340,9 @@ services:
       TEST_TIMEOUT: 300
 
     # Mount test results
-    volumes:
-      - ./test-results:/app/test-results
-      - ./target/screenshots:/app/screenshots
+#    volumes:
+#      - ./test-results:/app/test-results
+#      - ./target/screenshots:/app/screenshots
 
     networks:
       - app-network

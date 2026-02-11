@@ -43,13 +43,9 @@ pipeline {
         stage('Build Backend') {
             steps {
                 script {
-                    echo "🔨 Building Spring Boot backend..."
+                    echo "🔨 Building Spring Boot backend (Maven builds inside Docker)..."
                     sh '''
-                        # Build Maven project
-                       # mvn clean package -DskipTests
-                       # No need to run mvn clean docker compose handles this
-
-                        # Build Docker image
+                        # Build Docker image (Maven build happens inside Docker multi-stage build)
                         docker build -f Dockerfile.backend -t ${BACKEND_IMAGE}:${BUILD_TAG} .
                         docker tag ${BACKEND_IMAGE}:${BUILD_TAG} ${BACKEND_IMAGE}:latest
                     '''
@@ -124,22 +120,41 @@ pipeline {
                         mkdir -p ${TEST_RESULTS_DIR}
                         mkdir -p ${SCREENSHOTS_DIR}
 
-                        # Run E2E tests using the profile
-                        docker-compose --profile testing run --rm e2e-tests || TEST_EXIT_CODE=$?
+                        # Run E2E tests using the profile (capture exit code)
+                        set +e
+                        docker-compose --profile testing run --rm e2e-tests
+                        TEST_EXIT_CODE=$?
+                        set -e
 
-                        # Copy test results even if tests failed
-                        docker cp e2e-tests:/app/${TEST_RESULTS_DIR}/. ${TEST_RESULTS_DIR}/ 2>/dev/null || true
-                        docker cp e2e-tests:/app/${SCREENSHOTS_DIR}/. ${SCREENSHOTS_DIR}/ 2>/dev/null || true
+                        # Get container ID of the test container (even if it already exited)
+                        CONTAINER_ID=$(docker ps -aqf "name=e2e-tests")
+
+                        if [ ! -z "$CONTAINER_ID" ]; then
+                            echo "📦 Copying test artifacts from container: $CONTAINER_ID"
+
+                            # Copy test results (surefire reports for JUnit)
+                            docker cp $CONTAINER_ID:/app/target/surefire-reports/. ${TEST_RESULTS_DIR}/ 2>/dev/null || echo "⚠️  No surefire reports found"
+
+                            # Copy screenshots
+                            docker cp $CONTAINER_ID:/app/target/screenshots/. ${SCREENSHOTS_DIR}/ 2>/dev/null || echo "⚠️  No screenshots found"
+                        else
+                            echo "⚠️  Warning: Could not find e2e-tests container to copy artifacts"
+                        fi
+
+                        # List what we got
+                        echo "📋 Test artifacts collected:"
+                        ls -la ${TEST_RESULTS_DIR}/ 2>/dev/null || echo "  (no test results)"
+                        ls -la ${SCREENSHOTS_DIR}/ 2>/dev/null || echo "  (no screenshots)"
 
                         # Exit with test result
-                        exit ${TEST_EXIT_CODE:-0}
+                        exit ${TEST_EXIT_CODE}
                     '''
                 }
             }
             post {
                 always {
-                    // Archive test results
-                    junit allowEmptyResults: true, testResults: '**/test-results/**/*.xml'
+                    // Archive test results (JUnit XML files)
+                    junit allowEmptyResults: true, testResults: '**/test-results/**/*.xml, **/surefire-reports/**/*.xml'
 
                     // Archive screenshots
                     archiveArtifacts artifacts: 'target/screenshots/**/*.png', allowEmptyArchive: true
