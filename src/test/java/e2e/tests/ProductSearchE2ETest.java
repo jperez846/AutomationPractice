@@ -49,6 +49,7 @@ import java.net.URL;
  * - selenium.hub.url: If set, use Grid (Docker mode)
  * - If not set, use local ChromeDriver (local mode)
  */
+@Test(groups = "e2e")
 public class ProductSearchE2ETest {
 
     // ==================== TEST CONFIGURATION ====================

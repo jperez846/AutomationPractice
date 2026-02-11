@@ -125,7 +125,8 @@ wait_for_service() {
     echo "Waiting for $name at $url..."
 
     while [ $retry -lt $max_retries ]; do
-        if curl -f -s "$url" > /dev/null; then
+        # Try to connect (ignore HTTP status codes, just check if service responds)
+        if curl -s --connect-timeout 2 "$url" > /dev/null 2>&1; then
             echo "✓ $name is ready!"
             return 0
         fi
@@ -142,11 +143,13 @@ wait_for_service() {
 # Wait for Selenium Hub
 wait_for_service "$SELENIUM_HUB_URL/wd/hub/status" "Selenium Hub" 30
 
-# Wait for Frontend
-wait_for_service "$FRONTEND_URL/health" "Frontend" 30
+# Wait for Frontend (try both /health and / endpoints)
+wait_for_service "$FRONTEND_URL/health" "Frontend" 30 || \
+wait_for_service "$FRONTEND_URL/" "Frontend (root)" 30
 
-# Wait for Backend
-wait_for_service "$BACKEND_URL/actuator/health" "Backend" 30
+# Wait for Backend (try actuator/health, don't fail on 403)
+wait_for_service "$BACKEND_URL/actuator/health" "Backend" 30 || \
+wait_for_service "$BACKEND_URL/" "Backend (root)" 30
 
 echo ""
 echo "============================================"
@@ -158,17 +161,19 @@ echo ""
 # RUN TESTS
 # ============================================================================
 #
+# IMPORTANT: Run 'integration-test' phase, not 'test' phase
+# Your pom.xml excludes E2E tests from 'test' phase
+# E2E tests only run during 'integration-test' phase
+#
 # Maven command explanation:
 # clean: Remove old build artifacts
-# test: Run tests
-# -Dtest=ProductSearchE2ETest: Run specific test class
+# integration-test: Run integration tests (includes E2E tests)
 # -DseleniumHubUrl=$SELENIUM_HUB_URL: Pass Selenium URL to tests
 # -DfrontendUrl=$FRONTEND_URL: Pass frontend URL to tests
 # -Dbrowser=$BROWSER: Pass browser choice to tests
 # ============================================================================
 
 mvn clean integration-test \
-    -Dtest=ProductSearchE2ETest \
     -DseleniumHubUrl="$SELENIUM_HUB_URL" \
     -DfrontendUrl="$FRONTEND_URL" \
     -DbackendUrl="$BACKEND_URL" \

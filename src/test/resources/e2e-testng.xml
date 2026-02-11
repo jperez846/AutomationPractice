@@ -19,7 +19,11 @@
           30 minutes = 1800000 ms
         -->
         <parameter name="timeout" value="1800000"/>
-
+        <groups>
+            <run>
+                <include name="e2e"/>
+            </run>
+        </groups>
         <classes>
             <!-- Add your E2E test classes here -->
             <class name="e2e.tests.ProductSearchE2ETest"/>
