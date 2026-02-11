@@ -342,7 +342,7 @@ services:
     # Mount test results
     volumes:
       - ./test-results:/app/test-results
-      - ./target/screenshots:/app/target/screenshots
+      - ./target/screenshots:/app/screenshots
 
     networks:
       - app-network
