@@ -19,7 +19,13 @@ public class TestDataManager {
     // H2 database connection details
    // private static final String DB_URL = "jdbc:h2:mem:testdb";
     //private static final String DB_URL = "jdbc:h2:file:./data/testdb;AUTO_SERVER=TRUE";
-    private static final String DB_URL = "jdbc:h2:tcp://localhost:9092/mem:testdb;IFEXISTS=TRUE";
+//    private static final String DB_URL = "jdbc:h2:tcp://localhost:9092/mem:testdb;IFEXISTS=TRUE";
+    private static final String DB_HOST = System.getProperty(
+            "dbHost",
+            System.getenv().getOrDefault("DB_HOST", "localhost")
+    );
+
+    private static final String DB_URL = "jdbc:h2:tcp://" + DB_HOST + ":9092/mem:testdb;IFEXISTS=TRUE";
 
     private static final String DB_USER = "sa";
     private static final String DB_PASSWORD = "";

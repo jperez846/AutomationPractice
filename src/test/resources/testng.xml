@@ -1,8 +1,38 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE suite SYSTEM "https://testng.org/testng-1.0.dtd">
-<suite name="BackendSuiteTests">
-    <suite-files>
-        <suite-file path="testng-producttests.xml">
-        </suite-file>
-    </suite-files>
+
+<!--
+============================================================================
+TestNG Suite Configuration for Unit Tests
+============================================================================
+
+This file is used for regular 'mvn test' runs (NOT E2E tests).
+E2E tests are excluded here and run separately during integration-test phase.
+
+Since you don't have any unit tests yet, this is an empty suite.
+Add unit test classes here as you create them.
+============================================================================
+-->
+
+<suite name="Unit Test Suite" verbose="1" parallel="false">
+
+    <!--
+    ====================================================================
+    EMPTY SUITE - No Unit Tests Yet
+    ====================================================================
+    When you add unit tests, include them here like:
+
+    <test name="Unit Tests">
+        <groups>
+            <run>
+                <exclude name="e2e"/>
+            </run>
+        </groups>
+        <packages>
+            <package name="com.example.unit.*"/>
+        </packages>
+    </test>
+    ====================================================================
+    -->
+
 </suite>

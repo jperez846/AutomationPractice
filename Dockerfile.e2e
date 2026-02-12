@@ -1,101 +1,35 @@
-# ============================================================================
-# Dockerfile for E2E Test Runner
-# ============================================================================
-#
-# Purpose:
-# - Runs E2E tests inside a container
-# - Uses Maven to execute TestNG tests
-# - Connects to Selenium Grid for browser automation
-#
-# Benefits:
-# - Tests run in isolated environment
-# - Same results locally and in CI/CD
-# - No need to install Java/Maven on host machine
-# ============================================================================
-
-# ============================================================================
-# BASE IMAGE
-# ============================================================================
-#
-# Use Maven image with JDK
-# Includes: Java 21 + Maven 3.9.6
 FROM maven:3.9.6-eclipse-temurin-21
 
-# ============================================================================
-# INSTALL UTILITIES
-# ============================================================================
-#
-# curl: For health checks and debugging
-# wget: Alternative download tool
 RUN apt-get update && \
     apt-get install -y curl wget && \
     rm -rf /var/lib/apt/lists/*
 
-# ============================================================================
-# SET WORKING DIRECTORY
-# ============================================================================
 WORKDIR /app
 
-# ============================================================================
-# COPY PROJECT FILES
-# ============================================================================
-#
-# Strategy: Copy in layers for caching
-# 1. Copy pom.xml first (changes infrequently)
-# 2. Download dependencies (cached if pom.xml unchanged)
-# 3. Copy source code (changes frequently)
-# ============================================================================
-
-# Copy Maven files
 COPY pom.xml .
 COPY .mvn/ .mvn/
 COPY mvnw .
 
-# Download dependencies
-# This layer is cached if pom.xml doesn't change
 RUN mvn dependency:go-offline -B
 
-# Copy source code
 COPY src/ ./src/
 
 # ============================================================================
-# CREATE OUTPUT DIRECTORIES
+# CRITICAL: Create output directories OUTSIDE of /app/target/
+# This prevents conflict with Maven clean plugin
 # ============================================================================
-#
-# Directories for test results, screenshots, reports
-RUN mkdir -p /app/test-results \
-             /app/target/screenshots \
-             /app/target/surefire-reports
+RUN mkdir -p /app/test-output/results \
+             /app/test-output/screenshots
 
-# ============================================================================
-# ENVIRONMENT VARIABLES
-# ============================================================================
-#
-# Default values (can be overridden in docker-compose)
 ENV SELENIUM_HUB_URL=http://selenium-hub:4444
 ENV FRONTEND_URL=http://frontend:80
 ENV BACKEND_URL=http://backend:8080
 ENV BROWSER=chrome
 
-# ============================================================================
-# ENTRYPOINT SCRIPT
-# ============================================================================
-#
-# Create a script that:
-# 1. Waits for services to be ready
-# 2. Runs tests
-# 3. Copies results to output directory
-# ============================================================================
-
-# Create entrypoint script
 RUN cat > /app/run-tests.sh <<'EOF'
 #!/bin/bash
 
-# ============================================================================
-# E2E Test Runner Script
-# ============================================================================
-
-set -e  # Exit on error
+set -e
 
 echo "============================================"
 echo "E2E Test Runner Starting"
@@ -107,14 +41,7 @@ echo "Browser:      $BROWSER"
 echo "============================================"
 
 # ============================================================================
-# WAIT FOR SERVICES
-# ============================================================================
-#
-# Function to wait for a service to be ready
-# Arguments:
-#   $1: Service URL
-#   $2: Service name (for logging)
-#   $3: Max retries (default: 30)
+# WAIT FOR SERVICE FUNCTION
 # ============================================================================
 wait_for_service() {
     local url=$1
@@ -122,38 +49,39 @@ wait_for_service() {
     local max_retries=${3:-30}
     local retry=0
 
-    echo "Waiting for $name at $url..."
+    echo ""
+    echo "⏳ Waiting for $name at $url..."
 
     while [ $retry -lt $max_retries ]; do
-        # Try to connect (ignore HTTP status codes, just check if service responds)
-        if curl -s --connect-timeout 2 "$url" > /dev/null 2>&1; then
-            echo "✓ $name is ready!"
+        HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" \
+            --connect-timeout 5 \
+            --max-time 10 \
+            "$url" 2>/dev/null || echo "000")
+
+        if [ "$HTTP_CODE" != "000" ]; then
+            echo "✅ $name is ready! (HTTP $HTTP_CODE)"
             return 0
         fi
 
         retry=$((retry + 1))
-        echo "  Attempt $retry/$max_retries - waiting..."
-        sleep 2
+        echo "   Attempt $retry/$max_retries - No response, retrying in 5s..."
+        sleep 5
     done
 
-    echo "✗ $name failed to become ready after $max_retries attempts"
+    echo "❌ $name failed after $max_retries attempts"
     return 1
 }
 
-# Wait for Selenium Hub
+# ============================================================================
+# WAIT FOR ALL SERVICES
+# ============================================================================
 wait_for_service "$SELENIUM_HUB_URL/wd/hub/status" "Selenium Hub" 30
-
-# Wait for Frontend (try both /health and / endpoints)
-wait_for_service "$FRONTEND_URL/health" "Frontend" 30 || \
-wait_for_service "$FRONTEND_URL/" "Frontend (root)" 30
-
-# Wait for Backend (try actuator/health, don't fail on 403)
-wait_for_service "$BACKEND_URL/actuator/health" "Backend" 30 || \
-wait_for_service "$BACKEND_URL/" "Backend (root)" 30
+wait_for_service "$FRONTEND_URL/health" "Frontend" 20
+wait_for_service "$BACKEND_URL/actuator/health" "Backend" 30
 
 echo ""
 echo "============================================"
-echo "All Services Ready - Starting Tests"
+echo "✅ All services ready! Running Tests..."
 echo "============================================"
 echo ""
 
@@ -161,83 +89,53 @@ echo ""
 # RUN TESTS
 # ============================================================================
 #
-# IMPORTANT: Run 'integration-test' phase, not 'test' phase
-# Your pom.xml excludes E2E tests from 'test' phase
-# E2E tests only run during 'integration-test' phase
-#
-# Maven command explanation:
-# clean: Remove old build artifacts
-# integration-test: Run integration tests (includes E2E tests)
-# -DseleniumHubUrl=$SELENIUM_HUB_URL: Pass Selenium URL to tests
-# -DfrontendUrl=$FRONTEND_URL: Pass frontend URL to tests
-# -Dbrowser=$BROWSER: Pass browser choice to tests
+# Use 'test' instead of 'clean test' to avoid Maven clean
+# touching mounted directories
 # ============================================================================
-
-mvn clean integration-test \
-    -Dtest=ProductSearchE2ETest \
+mvn integration-test \
     -DseleniumHubUrl="$SELENIUM_HUB_URL" \
     -DfrontendUrl="$FRONTEND_URL" \
     -DbackendUrl="$BACKEND_URL" \
     -Dbrowser="$BROWSER" \
+    -DdbHost="backend" \
+    -B \
     || TEST_EXIT_CODE=$?
 
 # ============================================================================
-# COPY RESULTS
+# COPY RESULTS TO OUTPUT DIRECTORY
 # ============================================================================
-#
-# Copy test results to mounted volume for access from host
-# ============================================================================
-
 echo ""
-echo "============================================"
-echo "Copying Test Results"
-echo "============================================"
+echo "Copying test results..."
 
-# Copy Surefire reports (XML test results)
-if [ -d "target/surefire-reports" ]; then
-    cp -r target/surefire-reports/* /app/test-results/ || true
-    echo "✓ Test reports copied"
+# Copy surefire reports
+if [ -d "/app/target/surefire-reports" ]; then
+    cp -r /app/target/surefire-reports/* /app/test-output/results/ 2>/dev/null || true
+    echo "✓ Test reports copied to /app/test-output/results/"
 fi
 
 # Copy screenshots
-if [ -d "target/screenshots" ]; then
-    cp -r target/screenshots/* /app/test-results/ || true
-    echo "✓ Screenshots copied"
+if [ -d "/app/target/screenshots" ]; then
+    cp -r /app/target/screenshots/* /app/test-output/screenshots/ 2>/dev/null || true
+    echo "✓ Screenshots copied to /app/test-output/screenshots/"
 fi
 
 # ============================================================================
 # SUMMARY
 # ============================================================================
-
 echo ""
 echo "============================================"
 echo "Test Execution Complete"
 echo "============================================"
 
 if [ -n "$TEST_EXIT_CODE" ] && [ $TEST_EXIT_CODE -ne 0 ]; then
-    echo "Status: FAILED (exit code: $TEST_EXIT_CODE)"
-    echo "Check test results in ./test-results/"
+    echo "❌ Status: FAILED (exit code: $TEST_EXIT_CODE)"
     exit $TEST_EXIT_CODE
 else
-    echo "Status: PASSED"
+    echo "✅ Status: PASSED"
 fi
 
 EOF
 
-# Make script executable
 RUN chmod +x /app/run-tests.sh
 
-# ============================================================================
-# DEFAULT COMMAND
-# ============================================================================
-#
-# Run the test script when container starts
 ENTRYPOINT ["/app/run-tests.sh"]
-
-# ============================================================================
-# BUILD THIS IMAGE:
-# docker build -f Dockerfile.e2e -t e2e-tests:latest .
-#
-# RUN TESTS:
-# docker-compose run --rm e2e-tests
-# ============================================================================

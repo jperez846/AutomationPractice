@@ -116,7 +116,7 @@
                         <suiteXmlFile>src/test/resources/testng.xml</suiteXmlFile>
                     </suiteXmlFiles>
                     <!-- Exclude E2E tests from default run -->
-                    <excludedGroups>e2e</excludedGroups>
+<!--                    <excludedGroups>e2e</excludedGroups>-->
                 </configuration>
                 <executions>
                     <!-- Separate execution for E2E tests -->
