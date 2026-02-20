@@ -294,28 +294,17 @@ pipeline {
         }
     }
 
-     post {
-            always {
-                script {
-                    echo "🧹 Cleaning up..."
-                    sh 'docker-compose down -v || true'
+    post {
+        always {
+            script {
+                echo "🧹 Cleaning up..."
+                sh 'docker-compose down -v || true'
 
-                    // Check build result in Groovy, not shell
-                    if (currentBuild.result != 'SUCCESS' && currentBuild.result != null) {
-                        echo "📋 Build failed, dumping logs for debugging..."
-                        sh 'docker-compose logs --tail=100 || true'
-                    }
+                // Check build result in Groovy, not shell
+                if (currentBuild.result != 'SUCCESS' && currentBuild.result != null) {
+                    echo "📋 Build failed, dumping logs for debugging..."
+                    sh 'docker-compose logs --tail=100 || true'
                 }
-            }
-
-            success {
-                echo "✅ Build ${BUILD_NUMBER} completed successfully!"
-                echo "🚀 Images: ${BACKEND_IMAGE}:${IMAGE_TAG}, ${FRONTEND_IMAGE}:${IMAGE_TAG}"
-                echo "📦 ArgoCD will automatically deploy the new version"
-            }
-
-            failure {
-                echo "❌ Build ${BUILD_NUMBER} failed!"
             }
         }
 
