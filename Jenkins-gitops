@@ -20,6 +20,8 @@ pipeline {
         // Test results
         TEST_RESULTS_DIR = "test-results"
         SCREENSHOTS_DIR = "target/screenshots"
+
+
     }
 
     stages {
@@ -78,6 +80,7 @@ pipeline {
                     echo "🚀 Starting all services (backend, frontend, Selenium Grid)..."
                     sh '''
                         # Start all core services
+                        export DOCKER_DEFAULT_PLATFORM=linux/amd64
                         docker-compose up -d backend frontend selenium-hub chrome
 
                         # Wait for services to be healthy
