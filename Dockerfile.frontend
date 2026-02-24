@@ -128,7 +128,7 @@ server {
     # This avoids CORS issues (same origin for frontend and backend)
     location /api/ {
         # Backend service URL
-        # In docker-compose: service name (backend:8080)
+        # In docker compose: service name (backend:8080)
         # In production: actual backend URL
         proxy_pass http://backend:8080;
         
@@ -195,7 +195,7 @@ EOF
 # ============================================================================
 # 
 # Nginx listens on port 80
-# This is documentation only (actual mapping in docker-compose)
+# This is documentation only (actual mapping in docker compose)
 EXPOSE 80
 
 # ============================================================================

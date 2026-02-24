@@ -45,9 +45,8 @@ services:
       - app-network
 
   selenium-hub:
-    image: selenium/hub:latest
-    #Let dcoker choose instead
-    #platform: linux/amd64
+    image: seleniarm/hub:4.16.1        # ← was selenium/hub
+    platform: linux/arm64
     container_name: selenium-hub
     ports:
       - "4444:4444"
@@ -71,9 +70,8 @@ services:
       - app-network
 
   chrome:
-    image: selenium/node-chrome:latest
-    #Let docker choose
-    #platform: linux/amd64
+    image: seleniarm/node-chromium:4.16.1   # ← was selenium/node-chrome
+    platform: linux/arm64
     container_name: selenium-chrome
     shm_size: 2gb
     ports:

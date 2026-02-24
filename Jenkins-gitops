@@ -30,7 +30,7 @@ pipeline {
                 script {
                     echo "🧹 Cleaning up previous containers and images..."
                     sh '''
-                        docker-compose down -v || true
+                        docker compose down -v || true
                         docker system prune -f || true
                     '''
                 }
@@ -80,8 +80,7 @@ pipeline {
                     echo "🚀 Starting all services (backend, frontend, Selenium Grid)..."
                     sh '''
                         # Start all core services
-                        export DOCKER_DEFAULT_PLATFORM=linux/amd64
-                        docker-compose up -d backend frontend selenium-hub chrome
+                        docker compose up -d backend frontend selenium-hub chrome
 
                         # Wait for services to be healthy
                         echo "⏳ Waiting for services to become healthy..."
@@ -109,12 +108,12 @@ pipeline {
 
                         if [ $elapsed -ge $timeout ]; then
                             echo "❌ Services failed to become healthy in time"
-                            docker-compose logs
+                            docker compose logs
                             exit 1
                         fi
 
                         # Show running containers
-                        docker-compose ps
+                        docker compose ps
                     '''
                 }
             }
@@ -131,7 +130,9 @@ pipeline {
 
                         # Run E2E tests (capture exit code)
                         set +e
-                        docker-compose --profile testing run --rm e2e-tests
+                        docker compose --profile testing run --rm e2e-tests
+                        #docker compose run --rm e2e-tests
+
                         TEST_EXIT_CODE=$?
                         set -e
 
@@ -284,7 +285,7 @@ pipeline {
                             git commit -m "Update images to ${IMAGE_TAG} [skip ci]"
 
                             # Push with credentials
-                            git push https://${GITOPS_CREDENTIALS_USR}:${GITOPS_CREDENTIALS_PSW}@github.com/YOUR_USERNAME/product-app-k8s.git main
+                            git push https://${GITOPS_CREDENTIALS_USR}:${GITOPS_CREDENTIALS_PSW}@github.com/jperez846/product-app-k8s.git main
 
                             echo "✅ GitOps repo updated successfully!"
                         fi
@@ -301,12 +302,12 @@ pipeline {
         always {
             script {
                 echo "🧹 Cleaning up..."
-                sh 'docker-compose down -v || true'
+                sh 'docker compose down -v || true'
 
                 // Check build result in Groovy, not shell
                 if (currentBuild.result != 'SUCCESS' && currentBuild.result != null) {
                     echo "📋 Build failed, dumping logs for debugging..."
-                    sh 'docker-compose logs --tail=100 || true'
+                    sh 'docker compose logs --tail=100 || true'
                 }
             }
         }
