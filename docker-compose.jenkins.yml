@@ -2,7 +2,9 @@ version: '3.8'
 
 services:
   jenkins:
-    image: jenkins/jenkins:lts
+    build:
+      context: .
+      dockerfile: Dockerfile.jenkins
     container_name: jenkins
     privileged: true
     user: root
@@ -31,6 +33,9 @@ networks:
   jenkins-network:         # ← Jenkins creates this
     driver: bridge
     name: jenkins-network
+  app-network: # ← ADD THIS BLOCK
+    external: true      # tells Docker this network already exists
+    name: app-network
 
 volumes:
   jenkins_home:
